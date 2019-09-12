@@ -101,7 +101,7 @@ println "Using fq prefix"
 println params.fq_file_prefix
 //fq_file_prefix = fq_file.getParentFile().getAbsolutePath();
 fqs = Channel.from(fq_file.collect { it.tokenize( '\t' ) })
-             .map { SM, ID, LB, fq1, fq2, seq_folder -> ["${SM}", ID, LB, file("${params.fq_file_prefix}/${fq1}"), file("${params.fq_file_prefix}/${fq2}"), seq_folder] }
+             .map { SM, ID, LB, fq1, fq2, seq_folder -> ["${SM}", ID, LB, "${params.fq_file_prefix}/${fq1}", "${params.fq_file_prefix}/${fq2}", seq_folder] }
              .view()
 
 } else {
@@ -124,7 +124,7 @@ process perform_alignment {
     tag { ID }
 
     input:
-        set SM, ID, LB, fq1, fq2, seq_folder from fqs
+        set SM, ID, LB, file('fq1.fq.gz'), file('fq2.fq.gz'), seq_folder from fqs
         file("${params.reference}/*") from reference.collect()
     output:
         set val(ID), file("${ID}.bam"), file("${ID}.bam.bai") into fq_bam_set
@@ -132,7 +132,7 @@ process perform_alignment {
 
     
     """
-        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${params.reference}/${params.reference}.fa.gz ${fq1} ${fq2} | \\
+        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${params.reference}/${params.reference}.fa.gz fq1.fq.gz fq2.fq.gz | \\
         sambamba view --nthreads=${task.cpus} --show-progress --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${task.cpus} --show-progress --tmpdir=${params.tmpdir} --out=${ID}.bam /dev/stdin
         sambamba index --nthreads=${task.cpus} ${ID}.bam
