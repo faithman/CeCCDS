@@ -22,16 +22,11 @@ contig_list = Channel.from(CONTIG_LIST)
 date = new Date().format( 'yyyyMMdd' )
 params.out = "concordance-${date}"
 params.debug = false
-params.cores = 4
 params.tmpdir = "tmp/"
 params.email = ""
 params.alignments = "bam"
-File reference = new File("${params.reference}")
-if (params.reference != "(required)") {
-   reference_handle = reference.getAbsolutePath();
-} else {
-   reference_handle = "(required)"
-}
+
+reference_handle = file("${params.reference}/*")
 
 fq_concordance_script = file("fq_concordance.R")
 
@@ -43,8 +38,8 @@ if (params.debug == true) {
 
     """
     params.bamdir = "${params.out}/bam"
-    params.fq_file = "${workflow.projectDir}/test_data/sample_sheet.tsv"
-    params.fq_file_prefix = "${workflow.projectDir}/test_data"
+    params.fq_file = "test_data/sample_sheet.tsv"
+    params.fq_file_prefix = "test_data"
 
 } else {
     // The SM sheet that is used is located in the root of the git repo
@@ -103,7 +98,8 @@ param_summary = '''
 */
 if (params.fq_file_prefix) {
 println "Using fq prefix"
-fq_file_prefix = fq_file.getParentFile().getAbsolutePath();
+println params.fq_file_prefix
+//fq_file_prefix = fq_file.getParentFile().getAbsolutePath();
 fqs = Channel.from(fq_file.collect { it.tokenize( '\t' ) })
              .map { SM, ID, LB, fq1, fq2, seq_folder -> ["${SM}", ID, LB, file("${params.fq_file_prefix}/${fq1}"), file("${params.fq_file_prefix}/${fq2}"), seq_folder] }
              .view()
@@ -113,6 +109,7 @@ fqs = Channel.from(fq_file.collect { it.tokenize( '\t' ) })
          .map { SM, ID, LB, fq1, fq2, seq_folder -> [SM, ID, LB, file("${fq1}"), file("${fq2}"), seq_folder] }
 }
 
+reference = Channel.from(file("${params.reference}/*"))
 
 /* 
     =========
@@ -128,13 +125,14 @@ process perform_alignment {
 
     input:
         set SM, ID, LB, fq1, fq2, seq_folder from fqs
+        file("${params.reference}/*") from reference.collect()
     output:
         set val(ID), file("${ID}.bam"), file("${ID}.bam.bai") into fq_bam_set
         set val(SM), file("${ID}.bam"), file("${ID}.bam.bai") into SM_aligned_bams
 
     
     """
-        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${reference_handle} ${fq1} ${fq2} | \\
+        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${params.reference}/${params.reference}.fa.gz ${fq1} ${fq2} | \\
         sambamba view --nthreads=${task.cpus} --show-progress --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${task.cpus} --show-progress --tmpdir=${params.tmpdir} --out=${ID}.bam /dev/stdin
         sambamba index --nthreads=${task.cpus} ${ID}.bam
@@ -1189,7 +1187,6 @@ workflow.onComplete {
     Success     : ${workflow.success}
     workDir     : ${workflow.workDir}
     exit status : ${workflow.exitStatus}
-    Error report: ${workflow.errorReport ?: '-'}
     Git info: $workflow.repository - $workflow.revision [$workflow.commitId]
     User: ${user}
     """
