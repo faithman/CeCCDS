@@ -465,8 +465,6 @@ process coverage_bins_merge {
 
 process call_variants_individual {
 
-    publishDir "${params.out}/call_variants_individual", mode: 'copy', overwrite: true
-
     cpus params.cores
 
     tag { SM }
@@ -619,8 +617,7 @@ process concatenate_union_vcf {
 
 process filter_union_vcf {
 
-    //publishDir "${params.out}/variation", mode: 'copy'
-    publishDir "${params.out}/filter_union_vcf", mode: 'copy'
+    publishDir "${params.out}/variation", mode: 'copy'
 
     input:
         set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") from raw_vcf_concatenated
@@ -640,7 +637,6 @@ process filter_union_vcf {
 filtered_vcf.into {
     filtered_vcf_gtcheck;
     filtered_vcf_stat;
-
     filtered_vcf_pairwise;
     het_check_vcf;
     strain_pairwise_vcf;
@@ -703,9 +699,7 @@ process process_concordance_results {
     """
 }
 
-isotype_groups_ch.into { isotype_groups; for_combinded_final}
-
-// RE-RUN WITH FULL SAMPLE SHEET, SEE IF THIS PRODUCES OUTPUT mtr932 9/17/2019
+isotype_groups_ch.into { isotype_groups; for_combined_final}
 
 process generate_isotype_groups {
 
@@ -736,6 +730,7 @@ process pairwise_variant_compare {
 
     output:
         file("${group}.${isotype}.${pair.replace(",","_")}.png")
+        file("${group}.${isotype}.${pair.replace(",","_")}.tsv")
 
     script:
         pair_group = pair_group.trim().split("\t")
@@ -750,8 +745,6 @@ process pairwise_variant_compare {
         mv out.tsv ${group}.${isotype}.${pair.replace(",","_")}.tsv
     """
 }
-
-/*
 
 process heterozygosity_check {
 
@@ -777,7 +770,7 @@ process strain_pairwise_list {
 
     //executor 'local'
 
-   // publishDir "${params.out}/concordance/pairwise/between_strains", mode: "copy"
+    //publishDir "${params.out}/concordance/pairwise/between_strains", mode: "copy"
 
     input:
         file("SM_coverage.tsv") from for_strain_list
@@ -809,10 +802,6 @@ process query_between_group_pairwise_gt {
 
     cpus params.cores
 
-    //memory '64 GB'
-
-    //tag "${sp1}_${sp2}"
-
     input:
         set file("concordance.vcf.gz"), file("concordance.vcf.gz.csi") from strain_pairwise_vcf
 
@@ -828,10 +817,6 @@ process query_between_group_pairwise_gt {
 process between_group_pairwise {
 
     publishDir "${params.out}/concordance/pairwise/between_group", mode: 'copy', overwrite: true, pattern: '*.png'
-
-    //cpus params.cores
-
-    //memory '64 GB'
 
     tag "${sp1}_${sp2}"
 
@@ -859,7 +844,6 @@ process between_group_pairwise {
     """
 }
 
-
 process npr1_allele_check {
 
     cpus params.cores
@@ -883,7 +867,7 @@ process merge_betweengroup_pairwise_output {
     publishDir "${params.out}/concordance", mode: 'copy', overwrite: true
 
     input:
-        val bg_pairwise from between_group_pairwise_out.toSortedList()
+        file(bg_pairwise) from between_group_pairwise_out.toSortedList()
 
     output:
         file("merge_betweengroup_pairwise_output.tsv") into combine_pairwise_results_ch
@@ -901,7 +885,7 @@ process cutoff_distribution {
     publishDir "${params.out}/concordance", mode: 'copy', overwrite: true
 
     input:
-        val cutoff_val from cutoff_distribution.toSortedList()
+        file(cutoff_val) from cutoff_distribution.toSortedList()
 
     output:
         file("cutoff_distribution.tsv")
@@ -909,6 +893,7 @@ process cutoff_distribution {
 
     """
         echo ${cutoff_val}
+        ls -al 1>&2
         echo -e 'pairwise\\tconcordant_bin_gt_70\\tmax_discordant_bin_count_lt_3\\tmean_discordant_bin_count_lt_2.5\\tmin_bin' > cutoff_distribution.tsv
         cat ${cutoff_val.join(" ")} | cut -f 1,2,3,4,5 >> cutoff_distribution.tsv
     """
@@ -919,7 +904,7 @@ process combine_pairwise_results {
     publishDir "${params.out}/concordance", mode: 'copy', overwrite: true
 
     input:
-        file("isotyep_groups.tsv") from for_combinded_final
+        file("isotype_groups.tsv") from for_combined_final
         file("merge_betweengroup_pairwise_output.tsv") from combine_pairwise_results_ch
         file("npr1_allele_strain.tsv") from npr1_out
 
@@ -927,12 +912,9 @@ process combine_pairwise_results {
         file("new_isotype_groups.tsv")
 
     """
-        merge_groups_info.R isotyep_groups.tsv merge_betweengroup_pairwise_output.tsv npr1_allele_strain.tsv
+        merge_groups_info.R isotype_groups.tsv merge_betweengroup_pairwise_output.tsv npr1_allele_strain.tsv
     """
 }
-
-*/
-
 
 workflow.onComplete {
 
@@ -953,7 +935,6 @@ workflow.onComplete {
 
     println summary
 
-    /*
     // mail summary
     ['mail', '-s', 'wi-nf', params.email].execute() << summary
 
@@ -969,6 +950,5 @@ workflow.onComplete {
         outlog << "--------R--------"
         outlog << "Rscript -e 'devtools::session_info()'".execute().text
     }
-    */
 }
 
