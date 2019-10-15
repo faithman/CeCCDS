@@ -38,6 +38,8 @@ if (params.debug == true) {
 
     """
     params.bamdir = "${params.out}/bam"
+    params.fq_file = "${workflow.projectDir}/test_data/sample_sheet.tsv"
+    params.fq_file_prefix = "${workflow.projectDir}/test_data"
 
 } else {
     // The SM sheet that is used is located in the root of the git repo
@@ -107,7 +109,8 @@ fqs = Channel.from(fq_file.collect { it.tokenize( '\t' ) })
          .map { SM, ID, LB, fq1, fq2, seq_folder -> [SM, ID, LB, file("${fq1}"), file("${fq2}"), seq_folder] }
 }
 
-Channel.from(file("${params.reference}/*")).into { reference1; reference2; reference3 }
+Channel.fromPath("${params.reference}/*")
+       .into { reference1; reference2; reference3 }
 
 /* 
     =========
@@ -123,14 +126,14 @@ process perform_alignment {
 
     input:
         set SM, ID, LB, file(fq1), file(fq2), seq_folder from fqs
-        file("${params.reference}/*") from reference1.collect()
+        file("${params.genome}/*") from reference1.collect()
     output:
         set val(ID), file("${ID}.bam"), file("${ID}.bam.bai") into fq_bam_set
         set val(SM), file("${ID}.bam"), file("${ID}.bam.bai") into SM_aligned_bams
 
     
     """
-        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${params.reference}/${params.reference}.fa.gz $fq1 $fq2 | \\
+        bwa mem -t ${task.cpus} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${params.genome}/${params.genome}.fa.gz $fq1 $fq2 | \\
         sambamba view --nthreads=${task.cpus} --show-progress --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${task.cpus} --show-progress --tmpdir=${params.tmpdir} --out=${ID}.bam /dev/stdin
         sambamba index --nthreads=${task.cpus} ${ID}.bam
@@ -471,7 +474,7 @@ process call_variants_individual {
 
     input:
         set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_individual
-        file("${params.reference}/*") from reference2.collect()
+        file("${params.genome}/*") from reference2.collect()
 
     output:
         file("${SM}.individual.sites.tsv") into individual_sites
@@ -479,7 +482,7 @@ process call_variants_individual {
     """
     # Perform individual-level calling
     contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${task.cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${params.reference}/${params.reference}.fa.gz ${SM}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.individual.vcf.gz"
+    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${task.cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${params.genome}/${params.genome}.fa.gz ${SM}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.individual.vcf.gz"
     order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".individual.vcf.gz" }'`
     
     # Output variant sites
@@ -524,7 +527,7 @@ process call_variants_union {
 
     input:
         set val(SM), file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_set
-        file("${params.reference}/*") from reference3.collect()
+        file("${params.genome}/*") from reference3.collect()
 
     output:
         file("${SM}.union.vcf.gz") into union_vcf_to_list
@@ -533,7 +536,7 @@ process call_variants_union {
         contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
         echo \${contigs} | \\
         tr ' ' '\\n' | \\
-        xargs --verbose -I {} -P ${task.cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,INFO/AD,SP --fasta-ref ${params.reference}/${params.reference}.fa.gz ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
+        xargs --verbose -I {} -P ${task.cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,INFO/AD,SP --fasta-ref ${params.genome}/${params.genome}.fa.gz ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
         order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".union.vcf.gz" }'`
 
         # Output variant sites
@@ -936,7 +939,7 @@ workflow.onComplete {
     println summary
 
     // mail summary
-    ['mail', '-s', 'wi-nf', params.email].execute() << summary
+    ['mail', '-s', 'concordance-nf', params.email].execute() << summary
 
     def outlog = new File("${params.out}/log.txt")
     outlog.newWriter().withWriter {
